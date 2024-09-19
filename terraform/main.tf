@@ -1,44 +1,49 @@
 provider "local" {}
 
-resource "null_resource" "generate_ssh_key" {
-  provisioner "local-exec" {
-    command = <<EOT
-    if [ ! -f ${pathexpand(var.private_key_path)} ]; then
-      ssh-keygen -t rsa -b 2048 -f ${pathexpand(var.private_key_path)} -q -N "";
-    fi
-    EOT
+# resource "null_resource" "generate_ssh_key" {
+#   provisioner "local-exec" {
+#     command = <<EOT
+#     if [ ! -f ${pathexpand(var.private_key_path)} ]; then
+#       ssh-keygen -t rsa -b 2048 -f ${pathexpand(var.private_key_path)} -q -N "";
+#     fi
+#     EOT
+#   }
+# }
+
+resource "docker_image" "nginx" {
+  name         = "nginx:latest"
+  keep_locally = false
+}
+
+resource "docker_container" "nginx" {
+  image = docker_image.nginx
+  name  = "nginx-test"
+  ports {
+    internal = 80
+    external = 8000
   }
 }
 
-resource "null_resource" "install_docker" {
-  provisioner "local-exec" {
-    command = <<EOT
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh ./get-docker.sh --dry-run
-    EOT
+resource "kind_cluster" "default" {
+    name            = "cluster"
+    node_image      = "kindest/node:v1.27.1"
+    kubeconfig_path = pathexpand("/tmp/config")
+    wait_for_ready  = true
+
+    kind_config {
+      kind        = "Cluster"
+      api_version = "kind.x-k8s.io/v1alpha4"
+
+      node {
+          role = "control-plane"
+          extra_port_mappings {
+              container_port = 80
+              host_port      = 80
+          }
+      }
+
+      node {
+          role = "worker"
+      }
   }
-}
-
-resource "null_resource" "install_kind" {
-  provisioner "local-exec" {
-    command = <<EOT
-    curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" &&
-    chmod +x ./kubectl &&
-    sudo mv ./kubectl /usr/local/bin/kubectl &&
-    curl -Lo ./kind "https://kind.sigs.k8s.io/dl/$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep -oP '(?<=tag_name": ")[^"]+')/kind-linux-amd64" &&
-    chmod +x ./kind &&
-    sudo mv ./kind /usr/local/bin/kind &&
-    kind create cluster
-    EOT
-  }
-
-  depends_on = [null_resource.install_docker]
-}
-
-module "docker" {
-  source = "./modules/docker"
-}
-
-module "kubernetes" {
-  source = "./modules/kubernetes"
 }
